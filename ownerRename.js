@@ -2,15 +2,25 @@
 // When someone uses /nickname on the server owner, FigletBot can't apply it
 // (role hierarchy), so it DMs the owner the requested name ready to copy.
 // The owner applies it with the client's built-in /nick command.
+// FigletBot doesn't track whether they do.
+
+const { MessageFlags, escapeMarkdown } = require('discord.js');
 
 const MAX_NICK = 32; // Discord's nickname limit
+const REQUESTER_COOLDOWN_MS = 5 * 60 * 1000; // stops DM spam to the owner
 
-// guildId -> { nick, requestedById, requestedByName, channelId, at }
-const pending = new Map();
+// `${guildId}:${userId}` -> timestamp of their last request
+const cooldowns = new Map();
 
 // Stop the requested name from breaking out of the code block.
 function codeSafe(s) {
   return s.replace(/`/g, 'ˋ');
+}
+
+function pruneCooldowns(now) {
+  for (const [key, at] of cooldowns) {
+    if (now - at >= REQUESTER_COOLDOWN_MS) cooldowns.delete(key);
+  }
 }
 
 /**
@@ -18,68 +28,66 @@ function codeSafe(s) {
  * Returns true if it handled the request (target was the owner),
  * false if your normal setNickname path should run.
  */
-async function handleOwnerRename(interaction, targetMember, nick) {
+async function handleOwnerRename(interaction, targetMember, rawNick) {
   const guild = interaction.guild;
   if (!guild || targetMember.id !== guild.ownerId) return false;
 
-  if (nick.length > MAX_NICK) {
+  const ephemeral = { flags: MessageFlags.Ephemeral };
+
+  if (interaction.user.id === guild.ownerId) {
     await interaction.reply({
-      content: `Nicknames can be at most ${MAX_NICK} characters.`,
-      ephemeral: true,
+      ...ephemeral,
+      content: 'You own this server, so change your own nickname with `/nick`.',
     });
     return true;
   }
 
-  const owner = await guild.fetchOwner();
+  // Fetching the owner and sending the DM can outlast Discord's 3 second
+  // reply window, so acknowledge first. Only the requester sees the replies.
+  await interaction.deferReply(ephemeral);
+
+  // Discord trims nicknames, so match against the trimmed value.
+  const nick = rawNick.trim();
+  if (!nick) {
+    await interaction.editReply('Nicknames cannot be empty.');
+    return true;
+  }
+  if (nick.length > MAX_NICK) {
+    await interaction.editReply(`Nicknames can be at most ${MAX_NICK} characters.`);
+    return true;
+  }
+
+  const now = Date.now();
+  pruneCooldowns(now);
+  const cooldownKey = `${guild.id}:${interaction.user.id}`;
+  if (cooldowns.has(cooldownKey)) {
+    await interaction.editReply(
+      'You already sent the server owner a rename request recently. Try again in a few minutes.'
+    );
+    return true;
+  }
+
   const requester = interaction.member?.displayName ?? interaction.user.username;
 
-  pending.set(guild.id, {
-    nick,
-    requestedById: interaction.user.id,
-    requestedByName: requester,
-    channelId: interaction.channelId,
-    at: Date.now(),
-  });
-
   try {
+    const owner = await guild.fetchOwner();
     await owner.send(
-      `**${requester}** wants to rename you in **${guild.name}** to:\n` +
+      `**${escapeMarkdown(requester)}** wants to rename you in **${escapeMarkdown(guild.name)}** to:\n` +
       '```\n' + codeSafe(nick) + '\n```\n' +
       'Copy it, then run `/nick` in the server and paste it in.'
     );
-  } catch {
-    pending.delete(guild.id);
-    await interaction.reply({
-      content: "I couldn't DM the server owner (their DMs may be closed).",
-      ephemeral: true,
-    });
+  } catch (error) {
+    console.error('Could not DM the server owner:', error);
+    await interaction.editReply("I couldn't DM the server owner (their DMs may be closed).");
     return true;
   }
 
-  await interaction.reply({
-    content: `I can't rename the server owner directly, so I've sent <@${owner.id}> your request for **${nick}**.`,
-    allowedMentions: { parse: [] }, // show the mention without pinging
-  });
+  cooldowns.set(cooldownKey, now);
+
+  await interaction.editReply(
+    `Figlet is processing your request to change this nickname to **${escapeMarkdown(nick)}**.`
+  );
   return true;
 }
 
-/**
- * Announces when the owner actually applies the requested name.
- * The bot requires the GuildMembers privileged intent for this.
- */
-async function onGuildMemberUpdate(oldMember, newMember) {
-  const req = pending.get(newMember.guild.id);
-  if (!req || newMember.id !== newMember.guild.ownerId) return;
-  if (newMember.nickname !== req.nick) return;
-
-  pending.delete(newMember.guild.id);
-  const channel = newMember.guild.channels.cache.get(req.channelId);
-  if (channel?.isTextBased()) {
-    await channel.send({
-      content: `<@${newMember.id}> accepted **${req.requestedByName}**'s rename to **${req.nick}**.`,
-      allowedMentions: { parse: [] },
-    });
-  }
-}
-
-module.exports = { handleOwnerRename, onGuildMemberUpdate };
+module.exports = { handleOwnerRename };
