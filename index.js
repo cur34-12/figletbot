@@ -4,6 +4,7 @@ const {
     Client,
     GatewayIntentBits,
     MessageFlags,
+    escapeMarkdown,
     SlashCommandBuilder
 } = require('discord.js');
 
@@ -83,10 +84,13 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
+            const oldName = member.displayName;
+
             await member.setNickname(nickname);
 
             await interaction.reply({
-                content: `Changed ${user}'s nickname to **${nickname}**.`,
+                // The mention renders as the member's new nickname.
+                content: `Changed **${escapeMarkdown(oldName)}** to ${user}.`,
                 // Ping the renamed member, but never @everyone/@here/roles
                 // smuggled in through the nickname text.
                 allowedMentions: { users: [user.id] }
