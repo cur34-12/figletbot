@@ -64,10 +64,8 @@ async function handleOwnerRename(interaction, targetMember, nick) {
 }
 
 /**
- * Optional: announce when the owner actually applies the requested name.
- * Needs the GuildMembers privileged intent (enable it in the Developer
- * Portal and add GatewayIntentBits.GuildMembers to your client).
- * Register with: client.on('guildMemberUpdate', onGuildMemberUpdate);
+ * Announces when the owner actually applies the requested name.
+ * The bot requires the GuildMembers privileged intent for this.
  */
 async function onGuildMemberUpdate(oldMember, newMember) {
   const req = pending.get(newMember.guild.id);
