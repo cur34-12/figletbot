@@ -6,11 +6,19 @@ const {
     SlashCommandBuilder
 } = require('discord.js');
 
+const {
+    handleOwnerRename,
+    onGuildMemberUpdate
+} = require('./ownerRename');
+
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers
+    ]
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`Logged in as ${client.user.tag}`);
 
     for (const guild of client.guilds.cache.values()) {
@@ -54,6 +62,10 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    if (await handleOwnerRename(interaction, member, nickname)) {
+        return;
+    }
+
     try {
         await member.setNickname(nickname);
 
@@ -69,5 +81,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
 });
+
+client.on('guildMemberUpdate', onGuildMemberUpdate);
 
 client.login(process.env.DISCORD_TOKEN);
