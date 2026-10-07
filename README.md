@@ -33,9 +33,11 @@ Give the bot these permissions:
 - Send Messages
 - Manage Nicknames
 
+In the Discord Developer Portal, also enable the privileged **Server Members Intent**. FigletBot uses it to detect when the server owner applies a requested nickname.
+
 Put the FigletBot role above every member role that it needs to rename.
 
-The server owner cannot be renamed directly by a bot regardless of the bot's role position.
+The server owner cannot be renamed directly by a bot regardless of the bot's role position. FigletBot handles this by DMing the owner the requested nickname and then announcing when the owner applies it.
 
 ## Install
 
@@ -184,7 +186,7 @@ sudo systemctl restart figletbot
 ## Repository files
 
 - `index.js` contains the bot and `/nickname` command.
-- `ownerRename.js` contains the server owner fallback handling.
+- `ownerRename.js` contains the server owner rename request and confirmation flow.
 - `update.sh` downloads and deploys the latest public repository version.
 - `package.json` defines the Node.js dependencies.
 - `.env` contains the local Discord bot token and must not be committed.
